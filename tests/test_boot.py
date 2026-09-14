@@ -21,3 +21,10 @@ def test_auth_init_idempotent():
         assert before == after
 
     asyncio.run(run())
+
+
+def test_strategy_manager_importable():
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "services" / "strategy-engine"))
+    from app.engine.manager import strategy_manager
+    assert strategy_manager is not None
+    assert hasattr(strategy_manager, "register_signal_callback")

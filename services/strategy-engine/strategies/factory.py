@@ -1,7 +1,6 @@
-import importlib
 import logging
 from typing import Dict, List, Type, Optional
-from .strategy import BaseStrategy, StrategyStatus
+from .base import BaseStrategy, StrategyStatus
 
 logger = logging.getLogger(__name__)
 

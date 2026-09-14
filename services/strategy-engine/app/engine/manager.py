@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Callable
 from datetime import datetime
-from .strategy import BaseStrategy, StrategyStatus, StrategySignal, SignalAction
+from strategies.base import BaseStrategy, StrategyStatus, StrategySignal, SignalAction
 
 logger = logging.getLogger(__name__)
 
@@ -229,3 +229,7 @@ class StrategyManager:
                 break
             except Exception as e:
                 logger.error(f"Error in run loop for {strategy_id}: {e}")
+
+
+# 全局策略管理器实例
+strategy_manager = StrategyManager()
