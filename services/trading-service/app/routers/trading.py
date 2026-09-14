@@ -19,6 +19,7 @@ from common import (
     raise_validation_error,
     raise_trading_error,
     get_current_user,
+    get_optional_user,
     AuthUser,
 )
 from app.engine import (
@@ -36,7 +37,7 @@ logger = get_logger("trading-service")
 async def create_order(
     request: OrderCreateRequest,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
 ):
     """
     创建订单

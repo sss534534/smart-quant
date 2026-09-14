@@ -272,6 +272,7 @@ class TradingEngine:
                 resp = await client.post(
                     "http://risk-service:8005/risk/check",
                     json={
+                        "order_no": order.order_id,
                         "code": order.code,
                         "direction": order.direction.value,
                         "price": order.price,

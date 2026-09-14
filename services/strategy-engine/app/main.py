@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
     from app.feed import feed_market_bars
     # 每 30 秒把最新 quote 喂给运行中的策略
     scheduler.add_interval_job("feed_bars", feed_market_bars, seconds=30)
+    from app.bridge import register_handlers
+    register_handlers()
     yield
     scheduler.shutdown()
     logger.info("Strategy Engine shutting down...")
