@@ -174,7 +174,12 @@ class Settings(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
-    
+
+    @property
+    def SECRET_KEY(self) -> str:
+        """顶层代理：安全密钥（各服务 lifespan 用 settings.SECRET_KEY 初始化认证）"""
+        return self.security.SECRET_KEY
+
     @model_validator(mode='after')
     def validate_environment_specific(self) -> 'Settings':
         """验证环境特定配置"""

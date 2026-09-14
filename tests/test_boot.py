@@ -63,3 +63,38 @@ def test_init_db_creates_all_tables():
     names = sorted(inspect(engine).get_table_names())
     for expected in ("orders", "positions", "accounts", "strategy_signals", "risk_limits", "risk_checks", "backtests"):
         assert expected in names, names
+
+
+def _rebind_common_db_to_sqlite():
+    """本地无 MySQL（docker 内部 hostname 不可达），测试把 common 引擎换成内存 SQLite，
+    使 lifespan 的 init_db() 落在 SQLite 上。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    import common
+    import common.database as _db
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    common.engine = engine
+    _db.engine = engine
+    common.SessionLocal = _db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    from common import models  # noqa: F401 注册所有表
+    common.Base.metadata.create_all(bind=engine)
+    return engine
+
+
+def test_risk_check_allows_no_token():
+    from fastapi.testclient import TestClient
+    _rebind_common_db_to_sqlite()
+
+    app = _import_service_app("risk-service")
+    with TestClient(app) as client:
+        resp = client.post("/risk/check", json={
+            "order_no": "O-TEST-001",
+            "code": "600000",
+            "direction": "buy",
+            "price": 10.0,
+            "quantity": 100,
+        })
+    assert resp.status_code == 200
+    assert "passed" in resp.json()

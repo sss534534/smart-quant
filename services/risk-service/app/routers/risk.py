@@ -19,6 +19,7 @@ from common import (
     raise_validation_error,
     raise_risk_error,
     get_current_user,
+    get_optional_user,
     AuthUser,
 )
 from app.engine import (
@@ -36,8 +37,7 @@ logger = get_logger("risk-service")
 async def check_risk(
     request: RiskCheckRequest,
     total_capital: float = Query(100000, description="总资金"),
-    current_positions: dict = Query({}, description="当前持仓"),
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: Optional[AuthUser] = Depends(get_optional_user),
 ):
     """
     风控检查
@@ -45,7 +45,6 @@ async def check_risk(
     Args:
         request: 风控检查请求
         total_capital: 总资金
-        current_positions: 当前持仓
     
     Returns:
         dict: 风控检查结果
@@ -57,7 +56,7 @@ async def check_risk(
             quantity=request.quantity,
             price=request.price,
             total_capital=total_capital,
-            current_positions=current_positions,
+            current_positions={},
         )
         
         # 检查单笔交易限额
