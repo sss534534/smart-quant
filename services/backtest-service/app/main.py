@@ -28,6 +28,8 @@ logger = setup_logging("backtest-service")
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Backtest Service starting up...")
+    from common import init_db
+    init_db()
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
     yield
     logger.info("Backtest Service shutting down...")

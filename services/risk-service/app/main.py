@@ -28,8 +28,9 @@ logger = setup_logging("risk-service")
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Risk Service starting up...")
+    from common import init_db, auth_service, scheduler
+    init_db()
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
-    from common import scheduler
     # 启动定时任务：每 10 秒扫描全持仓触发预警
     scheduler.start()
     yield

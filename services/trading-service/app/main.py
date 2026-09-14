@@ -28,6 +28,8 @@ logger = setup_logging("trading-service")
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Trading Service starting up...")
+    from common import init_db
+    init_db()
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
     yield
     logger.info("Trading Service shutting down...")

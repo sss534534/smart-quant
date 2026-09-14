@@ -28,6 +28,8 @@ logger = setup_logging("portfolio-service")
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Portfolio Service starting up...")
+    from common import init_db
+    init_db()
     from app.engine import portfolio_engine
     await portfolio_engine.initialize(initial_capital=100000.0)
     await auth_service.initialize(secret_key=settings.SECRET_KEY)

@@ -47,3 +47,19 @@ def test_strategy_manager_importable():
 def test_data_service_app_importable():
     app = _import_service_app("data-service")
     assert app.title == "Data Service"
+
+
+def test_init_db_creates_all_tables():
+    from common import models  # noqa: F401 注册所有表
+    from sqlalchemy import create_engine, inspect
+    from sqlalchemy.pool import StaticPool
+    from common import Base
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    names = sorted(inspect(engine).get_table_names())
+    for expected in ("orders", "positions", "accounts", "strategy_signals", "risk_limits", "risk_checks", "backtests"):
+        assert expected in names, names

@@ -29,8 +29,9 @@ logger = setup_logging("strategy-engine")
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Strategy Engine starting up...")
+    from common import init_db, auth_service, scheduler
+    init_db()
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
-    from common import scheduler
     # 启动定时任务：每分钟推送 bar 给运行中策略
     scheduler.start()
     yield
