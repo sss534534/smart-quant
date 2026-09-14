@@ -309,7 +309,10 @@ class AuthService:
         self._user_counter: int = 0
         
     async def initialize(self, secret_key: str):
-        """初始化认证服务"""
+        """初始化认证服务（幂等：重复调用不重建 token 管理器）"""
+        if self._token_manager is not None:
+            logger.info("Auth service already initialized, skip")
+            return
         self._token_manager = TokenManager(secret_key)
         
         # 创建默认管理员

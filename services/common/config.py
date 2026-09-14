@@ -139,7 +139,7 @@ class MonitoringConfig(BaseSettings):
 
 class SecurityConfig(BaseSettings):
     """安全配置"""
-    SECRET_KEY: str = Field("your-secret-key-here", description="密钥")
+    SECRET_KEY: str = Field("dev-secret-key-quant-system-2026", description="密钥")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(30, ge=1, le=1440, description="访问令牌过期时间（分钟）")
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(7, ge=1, le=30, description="刷新令牌过期时间（天）")
     ALLOWED_HOSTS: List[str] = Field(["*"], description="允许的主机")
