@@ -15,6 +15,7 @@ from common import (
     AuthUser,
 )
 from app.engine import portfolio_engine, Position, PositionStatus
+from app.persistence import save_state
 
 router = APIRouter()
 logger = get_logger("portfolio-service")
@@ -97,6 +98,7 @@ async def deposit(
     """入金"""
     if not portfolio_engine.deposit(amount, description):
         raise_portfolio_error("入金失败", "金额必须大于 0")
+    save_state(portfolio_engine)
     return {"status": "ok", "balance": portfolio_engine.get_account().balance}
 
 
@@ -109,6 +111,7 @@ async def withdraw(
     """出金"""
     if not portfolio_engine.withdraw(amount, description):
         raise_portfolio_error("出金失败", "余额不足或金额无效")
+    save_state(portfolio_engine)
     return {"status": "ok", "balance": portfolio_engine.get_account().balance}
 
 
@@ -116,6 +119,7 @@ async def withdraw(
 async def update_prices(prices: Dict[str, float]):
     """批量更新当前价"""
     portfolio_engine.update_prices(prices)
+    save_state(portfolio_engine)
     return {"status": "ok", "updated": len(prices)}
 
 
@@ -141,6 +145,7 @@ async def process_trade(trade: Dict[str, Any]):
             order_no=trade.get("order_no") or trade.get("order_id", ""),
             trade_time=trade.get("trade_time"),
         )
+        save_state(portfolio_engine)
         return {
             "status": "ok",
             "position": pos.to_dict(),

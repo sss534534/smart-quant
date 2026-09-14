@@ -32,6 +32,8 @@ async def lifespan(app: FastAPI):
     init_db()
     from app.engine import portfolio_engine
     await portfolio_engine.initialize(initial_capital=100000.0)
+    from app.persistence import load_state
+    load_state(portfolio_engine)
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
     yield
     await portfolio_engine.shutdown()
