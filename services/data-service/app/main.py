@@ -7,10 +7,10 @@ from contextlib import asynccontextmanager
 import time
 
 from app.routers import market
-from app.database import init_db
 from common import (
     setup_logging,
     settings,
+    init_db,
     RequestMiddleware,
     PerformanceMiddleware,
     CORSMiddleware,

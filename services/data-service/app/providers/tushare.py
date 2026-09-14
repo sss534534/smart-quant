@@ -14,7 +14,7 @@ class TushareDataProvider(BaseDataProvider):
 
     def __init__(self, token: str):
         self.token = token
-        self.ts = ts.pro_api(token)
+        self.ts = ts.pro_api(token) if token else None
         self._initialized = False
 
     async def initialize(self):

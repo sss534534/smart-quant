@@ -18,18 +18,19 @@ from common import (
     raise_data_error,
     market_cache,
 )
-from app.models.market import MarketData, StockInfo, Calendar
+from common.models.market import MarketData, StockInfo, Calendar
 from app.providers.base import Quote
 from app.providers.tushare import TushareDataProvider
 from app.providers.mock import MockDataProvider
 
+from common import settings
 router = APIRouter()
 logger = get_logger("data-service")
 
 
 # 数据提供者
 tushare_provider = TushareDataProvider(
-    token=""  # TODO: 从配置加载
+    token=settings.tushare.TUSHARE_TOKEN or ""  # 从配置加载
 )
 mock_provider = MockDataProvider()
 

@@ -2,6 +2,20 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "services"))
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _import_service_app(service_dir):
+    """各服务模块名都是 app.main，同进程会互相覆盖 sys.modules；
+    用快照把已缓存的 app 包临时移除后导入，再恢复。"""
+    sys.path.insert(0, str(_ROOT / "services" / service_dir))
+    import importlib
+    saved = {m: sys.modules.pop(m) for m in list(sys.modules) if m == "app" or m.startswith("app.")}
+    try:
+        main = importlib.import_module("app.main")
+        return main.app
+    finally:
+        sys.modules.update(saved)
 
 
 def test_settings_secret_key_valid():
@@ -28,3 +42,8 @@ def test_strategy_manager_importable():
     from app.engine.manager import strategy_manager
     assert strategy_manager is not None
     assert hasattr(strategy_manager, "register_signal_callback")
+
+
+def test_data_service_app_importable():
+    app = _import_service_app("data-service")
+    assert app.title == "Data Service"
