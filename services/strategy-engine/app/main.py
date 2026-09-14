@@ -34,6 +34,9 @@ async def lifespan(app: FastAPI):
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
     # 启动定时任务：每分钟推送 bar 给运行中策略
     scheduler.start()
+    from app.feed import feed_market_bars
+    # 每 30 秒把最新 quote 喂给运行中的策略
+    scheduler.add_interval_job("feed_bars", feed_market_bars, seconds=30)
     yield
     scheduler.shutdown()
     logger.info("Strategy Engine shutting down...")
