@@ -2,9 +2,26 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Callable
 from datetime import datetime
-from strategies.base import BaseStrategy, StrategyStatus, StrategySignal, SignalAction
+from strategies.base import BaseStrategy, StrategyStatus, StrategySignal, SignalAction, BarData
 
 logger = logging.getLogger(__name__)
+
+
+def bar_from_dict(data: dict) -> BarData:
+    ts = data["timestamp"]
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return BarData(
+        code=data["code"],
+        timestamp=ts,
+        open=float(data.get("open", 0)),
+        high=float(data.get("high", 0)),
+        low=float(data.get("low", 0)),
+        close=float(data.get("close", 0)),
+        volume=int(data.get("volume", 0)),
+        amount=float(data.get("amount", 0)),
+        turnover=float(data.get("turnover", 0)),
+    )
 
 
 class StrategyManager:
@@ -47,27 +64,27 @@ class StrategyManager:
             return
 
         try:
+            bar = bar_from_dict(bar_data)
+            strategy.update_bar_history(bar)
             signal = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: strategy.on_bar(bar_data)
+                lambda: strategy.on_bar(bar)
             )
 
             if signal:
                 strategy.emit_signal(signal)
+                # 通知所有注册的信号回调（落库 / 下单）
+                self.emit_signals(signal)
 
         except Exception as e:
             logger.error(f"Error processing bar for strategy {strategy_id}: {e}")
             strategy.notify("on_error", {"strategy_id": strategy_id, "error": str(e)})
 
     async def process_bars(self, bar_data: Dict):
-        """处理 K 线数据，发送给所有运行中的策略"""
+        """处理 K 线数据，发送给所有运行中的策略（直接处理，单次喂入）"""
         if not self._initialized:
             await self.initialize()
 
-        # 放入队列
-        await self._bar_queue.put(bar_data)
-
-        # 并发处理所有策略
         tasks = [
             self._process_single_strategy(strategy_id, bar_data)
             for strategy_id, strategy in self._strategies.items()
