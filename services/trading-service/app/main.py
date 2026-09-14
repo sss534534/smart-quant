@@ -31,6 +31,9 @@ async def lifespan(app: FastAPI):
     from common import init_db
     init_db()
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
+    # 从 DB 重建引擎（订单/成交/资金/持仓按成交重放）
+    from app.persistence import rebuild_engine
+    await asyncio.to_thread(rebuild_engine, trading_engine)
     yield
     logger.info("Trading Service shutting down...")
 

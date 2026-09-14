@@ -28,6 +28,7 @@ from app.engine import (
     OrderType,
     OrderStatus,
 )
+from app.persistence import save_order, save_trade, update_order_status
 
 router = APIRouter()
 logger = get_logger("trading-service")
@@ -66,6 +67,12 @@ async def create_order(
             raise_trading_error("订单提交失败", order.reject_reason)
         
         logger.info("Order created", order_id=order.order_id, code=order.code)
+        
+        # 双写持久化：订单 + 已成交部分
+        from app.persistence import save_order, save_trade
+        save_order(order)
+        for t in await trading_engine.get_trades_for_order(order.order_id):
+            save_trade(t)
         
         return OrderResponse(
             id=0,
@@ -193,6 +200,12 @@ async def cancel_order(
     
     if not success:
         raise_trading_error("取消订单失败", f"订单 {order_id} 无法取消")
+    
+    # 同步 DB 状态
+    from app.persistence import update_order_status
+    order = trading_engine.get_order(order_id)
+    if order:
+        update_order_status(order)
     
     logger.info("Order cancelled", order_id=order_id)
     
