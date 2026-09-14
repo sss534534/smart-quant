@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: quant123
+      MYSQL_DATABASE: quant_system
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api-gateway:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - data-service
+      - strategy-engine
+      - backtest-service
+      - trading-service
+      - portfolio-service
+      - risk-service
+
+  data-service:
+    build: ./services/data-service
+    ports:
+      - "8006:8006"
+    depends_on:
+      - mysql
+      - redis
+
+  strategy-engine:
+    build: ./services/strategy-engine
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis
+      - data-service
+
+  backtest-service:
+    build: ./services/backtest-service
+    ports:
+      - "8002:8002"
+    depends_on:
+      - mysql
+
+  trading-service:
+    build: ./services/trading-service
+    ports:
+      - "8003:8003"
+    depends_on:
+      - redis
+
+  portfolio-service:
+    build: ./services/portfolio-service
+    ports:
+      - "8004:8004"
+    depends_on:
+      - mysql
+
+  risk-service:
+    build: ./services/risk-service
+    ports:
+      - "8005:8005"
+    depends_on:
+      - redis
+
+  web-frontend:
+    build: ./web-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+
+volumes:
+  mysql_data:

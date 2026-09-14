@@ -1,0 +1,89 @@
+"""
+风控服务主入口
+"""
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+import time
+
+from app.routers import risk
+from common import (
+    setup_logging,
+    settings,
+    RequestMiddleware,
+    PerformanceMiddleware,
+    CORSMiddleware,
+    quant_exception_handler,
+    general_exception_handler,
+    QuantBaseException,
+    auth_service,
+    auth_router as auth_routes,
+)
+
+# 配置日志
+logger = setup_logging("risk-service")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    logger.info("Risk Service starting up...")
+    await auth_service.initialize(secret_key=settings.SECRET_KEY)
+    from common import scheduler
+    # 启动定时任务：每 10 秒扫描全持仓触发预警
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+    logger.info("Risk Service shutting down...")
+
+
+app = FastAPI(
+    title="Risk Service",
+    description="量化风控服务",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# 添加中间件
+app.add_middleware(RequestMiddleware, service_name="risk-service")
+app.add_middleware(PerformanceMiddleware, service_name="risk-service", slow_threshold=1.0)
+app.add_middleware(CORSMiddleware)
+
+# Prometheus 监控
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app)
+except Exception as e:
+    logger.warning(f"Prometheus instrumentation failed: {e}")
+
+# 添加异常处理器
+app.add_exception_handler(QuantBaseException, quant_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
+
+# 注册路由
+API_V1_PREFIX = "/api/v1"
+app.include_router(risk.router, prefix="/risk", tags=["risk"])
+app.include_router(risk.router, prefix=f"{API_V1_PREFIX}/risk", tags=["risk"])
+
+# 认证路由
+app.include_router(auth_routes, prefix="/auth", tags=["auth"])
+app.include_router(auth_routes, prefix=f"{API_V1_PREFIX}/auth", tags=["auth"])
+
+
+@app.get("/health", tags=["health"])
+async def health_check():
+    """健康检查"""
+    from datetime import datetime
+    return {
+        "status": "healthy",
+        "service": "risk-service",
+        "version": "1.0.0",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8005)

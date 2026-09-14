@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 测试与运行产物
+.pytest_cache/
+test.db
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+
+# 环境
+.env
+
+# IDE
+.idea/
+.vscode/
