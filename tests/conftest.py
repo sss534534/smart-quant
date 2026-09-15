@@ -1,72 +1,132 @@
 """
-pytest配置文件
+pytest 配置文件
 提供测试夹具和配置
 """
-import pytest
+import sys
+import os
 from typing import Generator, Dict, Any
+from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.pool import StaticPool
 
-# 测试数据库URL
-TEST_DATABASE_URL = "sqlite:///./test.db"
+# 将 services 目录加入 sys.path 以便导入 common 模块
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services'))
 
-# 创建测试数据库引擎
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# 创建基础模型类
-Base = declarative_base()
+from common.database import Base
+from common import models  # noqa: F401  确保所有模型被注册
 
 
-@pytest.fixture(scope="session")
-def anyio_backend():
-    """异步后端配置"""
-    return "asyncio"
+# ============ 测试数据库（SQLite 内存） ============
+TEST_DATABASE_URL = "sqlite://"
+test_engine = create_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+
+def override_get_db():
+    """覆盖 get_db 依赖，使用测试数据库"""
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 @pytest.fixture(scope="function")
 def db_session() -> Generator:
     """数据库会话夹具"""
-    # 创建表
-    Base.metadata.create_all(bind=engine)
-    
-    # 创建会话
+    Base.metadata.create_all(bind=test_engine)
     session = TestingSessionLocal()
-    
     try:
         yield session
     finally:
         session.close()
-        # 清理表
-        Base.metadata.drop_all(bind=engine)
+        Base.metadata.drop_all(bind=test_engine)
+
+
+# ============ 客户端夹具 ============
+
+@pytest.fixture(scope="function")
+def strategy_client(db_session):
+    """策略服务测试客户端"""
+    from common.database import get_db
+    from strategy_engine.app.main import app
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="function")
-def client(db_session) -> Generator:
-    """测试客户端夹具"""
-    from fastapi import FastAPI
-    
-    # 创建测试应用
-    app = FastAPI()
-    
-    # 添加路由（根据需要导入）
-    # from app.routers import market, strategy, etc.
-    
-    # 使用测试数据库
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-    
-    # 这里需要根据实际应用调整
-    # app.dependency_overrides[get_db] = override_get_db
-    
+def data_client(db_session):
+    """数据服务测试客户端"""
+    from common.database import get_db
+    from data_service.app.main import app
+
+    app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
         yield client
+    app.dependency_overrides.clear()
 
+
+@pytest.fixture(scope="function")
+def trading_client(db_session):
+    """交易服务测试客户端"""
+    from common.database import get_db
+    from trading_service.app.main import app
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def portfolio_client(db_session):
+    """组合服务测试客户端"""
+    from common.database import get_db
+    from portfolio_service.app.main import app
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def risk_client(db_session):
+    """风控服务测试客户端"""
+    from common.database import get_db
+    from risk_service.app.main import app
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def backtest_client(db_session):
+    """回测服务测试客户端"""
+    from common.database import get_db
+    from backtest_service.app.main import app
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+# ============ 测试数据夹具 ============
 
 @pytest.fixture
 def sample_strategy_data() -> Dict[str, Any]:
@@ -74,12 +134,9 @@ def sample_strategy_data() -> Dict[str, Any]:
     return {
         "name": "Test Strategy",
         "code": "test_001",
-        "type": "technical",
+        "type": "dual_ma",
         "description": "Test strategy description",
-        "params": {
-            "short_window": 5,
-            "long_window": 20
-        }
+        "params": {"short_window": 5, "long_window": 20},
     }
 
 
@@ -87,11 +144,11 @@ def sample_strategy_data() -> Dict[str, Any]:
 def sample_order_data() -> Dict[str, Any]:
     """示例订单数据"""
     return {
-        "code": "000001",
+        "code": "600000",
         "direction": "buy",
         "order_type": "limit",
         "price": 10.5,
-        "quantity": 100
+        "quantity": 100,
     }
 
 
@@ -101,12 +158,12 @@ def sample_backtest_data() -> Dict[str, Any]:
     return {
         "name": "Test Backtest",
         "strategy_id": 1,
-        "code_list": ["000001", "000002"],
-        "start_date": "2023-01-01",
-        "end_date": "2023-12-31",
+        "code_list": ["600000", "000001"],
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
         "initial_capital": 100000,
         "commission_rate": 0.0003,
-        "slip_rate": 0.001
+        "slip_rate": 0.001,
     }
 
 
@@ -119,5 +176,15 @@ def sample_risk_limit_data() -> Dict[str, Any]:
         "limit_value": 0.3,
         "warning_value": 0.25,
         "description": "Maximum position percentage",
-        "enabled": True
+        "enabled": True,
+    }
+
+
+@pytest.fixture
+def sample_user_data() -> Dict[str, Any]:
+    """示例用户数据"""
+    return {
+        "username": "testuser",
+        "password": "testpass123",
+        "email": "test@test.com",
     }
