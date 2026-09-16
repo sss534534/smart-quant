@@ -1,0 +1,34 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'data-service'
+    static_configs:
+      - targets: ['data-service:8006']
+    metrics_path: /metrics
+
+  - job_name: 'strategy-engine'
+    static_configs:
+      - targets: ['strategy-engine:8001']
+    metrics_path: /metrics
+
+  - job_name: 'backtest-service'
+    static_configs:
+      - targets: ['backtest-service:8002']
+    metrics_path: /metrics
+
+  - job_name: 'trading-service'
+    static_configs:
+      - targets: ['trading-service:8003']
+    metrics_path: /metrics
+
+  - job_name: 'portfolio-service'
+    static_configs:
+      - targets: ['portfolio-service:8004']
+    metrics_path: /metrics
+
+  - job_name: 'risk-service'
+    static_configs:
+      - targets: ['risk-service:8005']
+    metrics_path: /metrics
