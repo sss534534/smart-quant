@@ -104,7 +104,7 @@ class TushareDataProvider(BaseDataProvider):
             logger.error(f"Failed to get klines for {code}: {e}")
             return []
 
-    async def get_stock_list(self, exchange: str = None) -> List[Dict]:
+    async def get_stock_list(self, exchange: str = None, limit: int = 1000) -> List[Dict]:
         """获取股票列表"""
         try:
             if exchange:
@@ -124,7 +124,7 @@ class TushareDataProvider(BaseDataProvider):
                     'float_shares': float(row['float_share'])
                 })
 
-            return stocks
+            return stocks[:limit]
         except Exception as e:
             logger.error(f"Failed to get stock list: {e}")
             return []

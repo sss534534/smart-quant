@@ -24,6 +24,7 @@ from common import (
 from common.models.market import MarketData, StockInfo, Calendar, Watchlist
 from app.providers.base import Quote
 from app.providers.tushare import TushareDataProvider
+from app.providers.eastmoney import EastmoneyDataProvider
 from app.providers.mock import MockDataProvider
 
 from common import settings
@@ -35,7 +36,23 @@ logger = get_logger("data-service")
 tushare_provider = TushareDataProvider(
     token=settings.tushare.TUSHARE_TOKEN or ""  # 从配置加载
 )
+eastmoney_provider = EastmoneyDataProvider()
 mock_provider = MockDataProvider()
+
+PROVIDER_MAP = {
+    "mock": mock_provider,
+    "eastmoney": eastmoney_provider,
+    "em": eastmoney_provider,
+    "tushare": tushare_provider,
+}
+
+DEFAULT_PROVIDER = "eastmoney"
+
+
+def _resolve_provider(provider: str):
+    """按名称解析数据提供者，默认使用东财真实数据"""
+    name = (provider or DEFAULT_PROVIDER).strip().lower()
+    return PROVIDER_MAP.get(name, eastmoney_provider)
 
 
 @router.get("/quote/{code}")
@@ -63,10 +80,7 @@ async def get_quote(
             return cached
         
         # 选择数据提供者
-        if provider == "mock":
-            provider_instance = mock_provider
-        else:
-            provider_instance = tushare_provider
+        provider_instance = _resolve_provider(provider)
         
         await provider_instance.initialize()
         
@@ -118,10 +132,7 @@ async def get_klines(
             return cached
         
         # 选择数据提供者
-        if provider == "mock":
-            provider_instance = mock_provider
-        else:
-            provider_instance = tushare_provider
+        provider_instance = _resolve_provider(provider)
         
         await provider_instance.initialize()
         
@@ -147,6 +158,7 @@ async def get_klines(
 async def get_stock_list(
     exchange: Optional[str] = Query(None, description="交易所"),
     limit: int = Query(100, ge=1, le=1000, description="返回数量限制"),
+    provider: str = Query(default=DEFAULT_PROVIDER, description="数据提供者"),
     db: Session = Depends(get_db)
 ):
     """
@@ -155,23 +167,24 @@ async def get_stock_list(
     Args:
         exchange: 交易所（SSE/SZSE/BSE）
         limit: 返回数量限制
+        provider: 数据提供者
     
     Returns:
         list: 股票列表
     """
     try:
         # 检查缓存
-        cache_key = f"stocks:{exchange}:{limit}"
+        cache_key = f"stocks:{exchange}:{limit}:{provider}"
         cached = market_cache.get(cache_key)
         if cached:
             logger.info("Cache hit for stock list")
             return cached
         
         # 获取股票列表
-        provider_instance = mock_provider
+        provider_instance = _resolve_provider(provider)
         await provider_instance.initialize()
         
-        stocks = await provider_instance.get_stock_list(exchange)
+        stocks = await provider_instance.get_stock_list(exchange, limit)
         result = stocks[:limit]
         
         # 缓存结果
@@ -237,8 +250,8 @@ async def get_calendar(
 
 @router.get("/board")
 async def get_market_board(
-    codes: str = Query("", description="股票代码列表，逗号分隔，留空返回 mock 全量看板"),
-    provider: str = Query(default="mock", description="数据提供者"),
+    codes: str = Query("", description="股票代码列表，逗号分隔，留空返回默认看板"),
+    provider: str = Query(default=DEFAULT_PROVIDER, description="数据提供者"),
     db: Session = Depends(get_db)
 ):
     """
@@ -253,10 +266,10 @@ async def get_market_board(
     """
     code_list = [c.strip() for c in codes.split(",") if c.strip()]
     if not code_list:
-        code_list = [s["code"] for s in MOCK_STOCKS]
+        code_list = ["600519", "601318", "600036", "000001", "000858", "300750", "002415", "601127"]
 
     # 选择数据提供者
-    provider_instance = mock_provider if provider == "mock" else tushare_provider
+    provider_instance = _resolve_provider(provider)
     await provider_instance.initialize()
 
     results = []
@@ -270,7 +283,7 @@ async def get_market_board(
             quote = await provider_instance.get_quote(code)
             if quote:
                 data = quote.__dict__
-                data["code"] = code
+                data["code"] = data.get("code") or code
                 data["provider"] = provider
                 market_cache.set(cache_key, data, ttl=10)
                 results.append(data)
@@ -302,12 +315,12 @@ async def get_watchlist(
         .order_by(Watchlist.sort_order.asc(), Watchlist.created_at.desc()) \
         .all()
 
-    # 批量获取行情
-    provider_instance = mock_provider
+    # 批量获取行情（东财真实数据）
+    provider_instance = _resolve_provider(DEFAULT_PROVIDER)
     await provider_instance.initialize()
     for item in items:
         try:
-            cache_key = f"board:{item.code}:mock"
+            cache_key = f"board:{item.code}:{DEFAULT_PROVIDER}"
             cached = market_cache.get(cache_key)
             if cached:
                 item.latest_price = cached.get("price")

@@ -47,8 +47,8 @@ export const authAPI = {
 
 // ============ 市场数据 API ============
 export const marketAPI = {
-  getQuote: (code, provider = 'mock') => api.get(`/data/market/quote/${code}`, { params: { provider } }),
-  getKLine: (code, startDate, endDate, interval = '1d', provider = 'mock') =>
+  getQuote: (code, provider = 'eastmoney') => api.get(`/data/market/quote/${code}`, { params: { provider } }),
+  getKLine: (code, startDate, endDate, interval = '1d', provider = 'eastmoney') =>
     api.get(`/data/market/kline/${code}`, { params: { start_date: startDate, end_date: endDate, interval, provider } }),
   getStocks: (exchange = null, limit = 100) => api.get('/data/market/stocks', { params: { exchange, limit } }),
   getCalendar: (startDate, endDate) => api.get('/data/market/calendar', { params: { start_date: startDate, end_date: endDate } }),

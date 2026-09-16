@@ -71,8 +71,9 @@
             </el-form-item>
             <el-form-item label="数据源">
               <el-select v-model="search.provider" style="width: 120px">
-                <el-option label="Mock" value="mock" />
+                <el-option label="东财" value="eastmoney" />
                 <el-option label="Tushare" value="tushare" />
+                <el-option label="Mock" value="mock" />
               </el-select>
             </el-form-item>
             <el-form-item label="周期">
@@ -135,7 +136,7 @@ import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { marketAPI } from '../api'
 
-const search = ref({ code: '600000', provider: 'mock', interval: '1d' })
+const search = ref({ code: '600000', provider: 'eastmoney', interval: '1d' })
 const quote = ref(null)
 const stocks = ref([])
 const klineChart = ref(null)

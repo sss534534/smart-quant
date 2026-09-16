@@ -148,8 +148,9 @@ class MockDataProvider(BaseDataProvider):
             logger.error(f"Failed to get mock klines for {code}: {e}")
             return []
 
-    async def get_stock_list(self, exchange: str = None) -> List[Dict]:
+    async def get_stock_list(self, exchange: str = None, limit: int = 1000) -> List[Dict]:
         """获取股票列表"""
+        stocks = MOCK_STOCKS
         if exchange:
-            return [s for s in MOCK_STOCKS if s['exchange'] == exchange]
-        return MOCK_STOCKS
+            stocks = [s for s in MOCK_STOCKS if s['exchange'] == exchange]
+        return stocks[:limit]
