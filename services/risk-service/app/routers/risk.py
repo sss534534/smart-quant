@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from collections import Counter
 
 from common import (
     get_db,
@@ -31,6 +32,57 @@ from app.engine import (
 
 router = APIRouter()
 logger = get_logger("risk-service")
+
+
+@router.get("/dashboard")
+async def get_risk_dashboard(user: AuthUser = Depends(get_current_user)):
+    """
+    风控仪表盘
+    限额概况 + 预警统计 + 预警分布 + 风控检查统计
+    """
+    limits = risk_engine.get_limits()
+    alerts = risk_engine.get_alerts(limit=500)
+    stats = risk_engine.get_stats()
+
+    # 限额概况
+    limit_summary = {
+        "total": len(limits),
+        "enabled": len([l for l in limits if l.enabled]),
+        "disabled": len([l for l in limits if not l.enabled]),
+        "types": list(set(l.risk_type.value for l in limits)),
+    }
+
+    # 预警统计
+    alert_stats = {
+        "total": stats["total_alerts"],
+        "by_level": dict(Counter(a.level.value for a in alerts)),
+        "by_type": dict(Counter(a.risk_type.value for a in alerts)),
+    }
+
+    # 最近预警
+    recent_alerts = [a.to_dict() for a in alerts[:20]]
+
+    # 检查统计
+    check_stats = {
+        "total": stats["total_checks"],
+        "blocked": stats["blocked_checks"],
+        "pass_rate": (1 - stats["blocked_checks"] / stats["total_checks"]) * 100 if stats["total_checks"] > 0 else 100,
+    }
+
+    # 风险类型分布
+    risk_type_dist = {}
+    for lt in RiskType:
+        count = len([l for l in limits if l.risk_type == lt])
+        if count > 0:
+            risk_type_dist[lt.value] = count
+
+    return {
+        "limit_summary": limit_summary,
+        "alert_stats": alert_stats,
+        "recent_alerts": recent_alerts,
+        "check_stats": check_stats,
+        "risk_type_distribution": risk_type_dist,
+    }
 
 
 @router.post("/check")

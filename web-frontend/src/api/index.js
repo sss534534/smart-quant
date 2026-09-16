@@ -52,6 +52,10 @@ export const marketAPI = {
     api.get(`/data/market/kline/${code}`, { params: { start_date: startDate, end_date: endDate, interval, provider } }),
   getStocks: (exchange = null, limit = 100) => api.get('/data/market/stocks', { params: { exchange, limit } }),
   getCalendar: (startDate, endDate) => api.get('/data/market/calendar', { params: { start_date: startDate, end_date: endDate } }),
+  getBoard: (codes = '') => api.get('/data/market/board', { params: { codes } }),
+  getWatchlist: () => api.get('/data/market/watchlist'),
+  addToWatchlist: (code, remark = '') => api.post('/data/market/watchlist', { code, remark }),
+  removeFromWatchlist: (code) => api.delete(`/data/market/watchlist/${code}`),
 }
 
 // ============ 策略 API ============
@@ -64,6 +68,8 @@ export const strategyAPI = {
   run: (id) => api.post(`/strategy/${id}/run`),
   stop: (id) => api.post(`/strategy/${id}/stop`),
   getSignals: (id, limit = 100) => api.get(`/strategy/${id}/signals`, { params: { limit } }),
+  analyze: (id, days = 90) => api.get(`/strategy/${id}/analysis`, { params: { days } }),
+  compare: (ids) => api.get('/strategy/compare', { params: { ids: ids.join(',') } }),
 }
 
 // ============ 回测 API ============
@@ -75,6 +81,9 @@ export const backtestAPI = {
   stop: (id) => api.post(`/backtest/${id}/stop`),
   getResult: (id) => api.get(`/backtest/${id}/result`),
   getStatus: (id) => api.get(`/backtest/${id}/status`),
+  getReport: (id) => api.get(`/backtest/${id}/report`),
+  getExportCsv: (id, kind = 'trades') => api.get(`/backtest/${id}/export-csv`, { params: { kind }, responseType: 'blob' }),
+  getExportReport: (id) => api.get(`/backtest/${id}/export-report`, { responseType: 'blob' }),
 }
 
 // ============ 交易 API ============
@@ -107,6 +116,7 @@ export const portfolioAPI = {
   processTrade: (trade) => api.post('/portfolio/process-trade', trade),
   rebuild: (trades) => api.post('/portfolio/rebuild', trades),
   getStats: () => api.get('/portfolio/stats'),
+  getReport: () => api.get('/portfolio/report'),
 }
 
 // ============ 风控 API ============
@@ -122,6 +132,7 @@ export const riskAPI = {
   calcVaR: (returns, confidence = 0.95, period = 1) => api.post('/risk/var', returns, { params: { confidence, period } }),
   getStats: () => api.get('/risk/stats'),
   getStatus: () => api.get('/risk/status'),
+  getDashboard: () => api.get('/risk/dashboard'),
 }
 
 export default api

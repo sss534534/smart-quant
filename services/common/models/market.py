@@ -82,3 +82,23 @@ class Calendar(Base):
 
     def __repr__(self):
         return f'<Calendar(id={self.id}, trade_date={self.trade_date})>'
+
+
+class Watchlist(Base):
+    """自选股模型"""
+    __tablename__ = 'watchlist'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='主键 ID')
+    user_id = Column(Integer, nullable=False, default=0, comment='用户 ID')
+    code = Column(String(50), nullable=False, comment='股票代码')
+    name = Column(String(100), comment='股票名称')
+    remark = Column(String(200), comment='备注')
+    sort_order = Column(Integer, default=0, comment='排序')
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
+    def __repr__(self):
+        return f'<Watchlist(id={self.id}, user_id={self.user_id}, code={self.code})>'

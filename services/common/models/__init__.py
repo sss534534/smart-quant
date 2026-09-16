@@ -4,7 +4,7 @@ from .backtest import Backtest, BacktestResult, BacktestTrade, EquityCurve
 from .order import Order, Trade, OrderStatus, OrderDirection, OrderType
 from .portfolio import Position, Account, AccountLog, PositionDirection, PositionStatus
 from .risk import RiskLimit, RiskCheck, RiskReport, RiskType, RiskLevel
-from .market import MarketData, StockInfo, Calendar, MarketDataType
+from .market import MarketData, StockInfo, Calendar, Watchlist, MarketDataType
 from .user import User
 
 __all__ = [
@@ -13,6 +13,6 @@ __all__ = [
     "Order", "Trade", "OrderStatus", "OrderDirection", "OrderType",
     "Position", "Account", "AccountLog", "PositionDirection", "PositionStatus",
     "RiskLimit", "RiskCheck", "RiskReport", "RiskType", "RiskLevel",
-    "MarketData", "StockInfo", "Calendar", "MarketDataType",
+    "MarketData", "StockInfo", "Calendar", "Watchlist", "MarketDataType",
     "User",
 ]

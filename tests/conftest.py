@@ -14,8 +14,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import StaticPool
 
-# 将 services 目录加入 sys.path 以便导入 common 模块
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services'))
+# 将 services 目录及各子服务目录加入 sys.path
+_services_dir = os.path.join(os.path.dirname(__file__), '..', 'services')
+sys.path.insert(0, _services_dir)
+for svc in ['data-service', 'strategy-engine', 'backtest-service',
+             'trading-service', 'portfolio-service', 'risk-service']:
+    sys.path.insert(0, os.path.join(_services_dir, svc))
 
 from common.database import Base
 from common import models  # noqa: F401  确保所有模型被注册
@@ -58,7 +62,7 @@ def db_session() -> Generator:
 def strategy_client(db_session):
     """策略服务测试客户端"""
     from common.database import get_db
-    from strategy_engine.app.main import app
+    from app.main import app
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
@@ -70,7 +74,7 @@ def strategy_client(db_session):
 def data_client(db_session):
     """数据服务测试客户端"""
     from common.database import get_db
-    from data_service.app.main import app
+    from app.main import app
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
@@ -82,7 +86,7 @@ def data_client(db_session):
 def trading_client(db_session):
     """交易服务测试客户端"""
     from common.database import get_db
-    from trading_service.app.main import app
+    from app.main import app
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
@@ -94,7 +98,7 @@ def trading_client(db_session):
 def portfolio_client(db_session):
     """组合服务测试客户端"""
     from common.database import get_db
-    from portfolio_service.app.main import app
+    from app.main import app
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
@@ -106,7 +110,7 @@ def portfolio_client(db_session):
 def risk_client(db_session):
     """风控服务测试客户端"""
     from common.database import get_db
-    from risk_service.app.main import app
+    from app.main import app
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:
@@ -118,7 +122,7 @@ def risk_client(db_session):
 def backtest_client(db_session):
     """回测服务测试客户端"""
     from common.database import get_db
-    from backtest_service.app.main import app
+    from app.main import app
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as client:

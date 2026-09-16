@@ -3,10 +3,16 @@
 提供回测任务管理、执行和结果查询
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, date
 import pandas as pd
+import numpy as np
+import io
+import csv
+import json
+import zipfile
 
 from common import (
     get_db,
@@ -279,6 +285,318 @@ async def get_backtest_result(
         "trades": [t.__dict__ for t in trades],
         "equity_curve": [e.__dict__ for e in equity_curve],
     }
+
+
+@router.get("/{backtest_id}/report")
+async def get_backtest_report(
+    backtest_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    获取完整回测分析报告
+
+    在基础指标之上，计算月度收益矩阵、回撤分析、
+    风险指标（波动率、下行波动率、索提诺比率、卡尔玛比率）等。
+
+    Returns:
+        dict: 完整回测分析报告
+    """
+    from common.models.backtest import Backtest, BacktestResult, BacktestTrade, EquityCurve
+
+    backtest = db.query(Backtest).filter(Backtest.id == backtest_id).first()
+    if not backtest:
+        raise_not_found("Backtest", backtest_id)
+
+    if backtest.status != "completed":
+        raise_validation_error("回测未完成")
+
+    result = db.query(BacktestResult).filter(BacktestResult.backtest_id == backtest_id).first()
+    trades = db.query(BacktestTrade).filter(BacktestTrade.backtest_id == backtest_id).all()
+    equity_rows = db.query(EquityCurve).filter(EquityCurve.backtest_id == backtest_id).order_by(EquityCurve.date.asc()).all()
+
+    metrics = result.__dict__ if result else {}
+
+    # ---------- 月度收益矩阵 ----------
+    monthly_matrix = {}
+    monthly_series = []
+    if equity_rows:
+        eq_df = pd.DataFrame([
+            {"date": r.date, "equity": r.equity, "cum_return": r.cumulative_return}
+            for r in equity_rows
+        ])
+        eq_df["ym"] = eq_df["date"].dt.strftime("%Y-%m")
+        # 每月末累计收益
+        month_end = eq_df.groupby("ym").tail(1)
+        prev_cum = month_end["cum_return"].shift(1).fillna(0.0)
+        month_returns = month_end["cum_return"] - prev_cum
+        for ym, r in zip(eq_df["ym"].drop_duplicates(), month_returns):
+            year, mon = ym.split("-")
+            monthly_matrix.setdefault(year, {})[mon] = round(float(r), 4)
+            monthly_series.append({"year": year, "month": mon, "return": round(float(r), 4)})
+
+    # ---------- 回撤分析 ----------
+    drawdown_analysis = {}
+    if equity_rows:
+        equity_vals = [r.equity for r in equity_rows]
+        dates_vals = [r.date for r in equity_rows]
+        peak = equity_vals[0]
+        peak_date = dates_vals[0]
+        max_dd = 0.0
+        max_dd_start = dates_vals[0].isoformat()
+        max_dd_end = dates_vals[0].isoformat()
+        current_start = dates_vals[0]
+        current_dd = 0.0
+        in_drawdown = False
+        for i, eq in enumerate(equity_vals):
+            if eq >= peak:
+                peak = eq
+                peak_date = dates_vals[i]
+                current_dd = 0.0
+                in_drawdown = False
+            else:
+                dd = (peak - eq) / peak
+                if not in_drawdown:
+                    current_start = dates_vals[i]
+                    in_drawdown = True
+                if dd > current_dd:
+                    current_dd = dd
+                    max_dd = max(max_dd, current_dd)
+                    max_dd_start = current_start.isoformat()
+                    max_dd_end = dates_vals[i].isoformat()
+
+        # 回撤持续时间（自然日）
+        dd_days = 0
+        if max_dd > 0:
+            try:
+                dd_days = (datetime.fromisoformat(max_dd_end) - datetime.fromisoformat(max_dd_start)).days
+            except Exception:
+                dd_days = 0
+
+        drawdown_analysis = {
+            "max_drawdown": round(max_dd, 4),
+            "start_date": max_dd_start,
+            "end_date": max_dd_end,
+            "duration_days": dd_days,
+        }
+
+    # ---------- 风险指标 ----------
+    risk_metrics = {}
+    if equity_rows:
+        eq_df = pd.DataFrame([{"date": r.date, "equity": r.equity} for r in equity_rows])
+        daily_returns = eq_df["equity"].pct_change().dropna()
+        if len(daily_returns) > 1:
+            ann_vol = float(daily_returns.std() * np.sqrt(252))
+            downside = daily_returns[daily_returns < 0]
+            downside_vol = float(downside.std() * np.sqrt(252)) if len(downside) else 0.0
+            total_return = (eq_df["equity"].iloc[-1] - eq_df["equity"].iloc[0]) / eq_df["equity"].iloc[0]
+            days = (eq_df["date"].iloc[-1] - eq_df["date"].iloc[0]).days
+            annual_return = (1 + total_return) ** (365 / max(days, 1)) - 1
+            sharpe = float(daily_returns.mean() / daily_returns.std() * np.sqrt(252)) if daily_returns.std() > 0 else 0.0
+            sortino = float(daily_returns.mean() / downside.std() * np.sqrt(252)) if downside_vol > 0 else 0.0
+            max_dd = metrics.get("max_drawdown") or drawdown_analysis.get("max_drawdown") or 0.0
+            calmar = float(annual_return / max_dd) if max_dd else 0.0
+
+            risk_metrics = {
+                "annual_volatility": round(ann_vol, 4),
+                "downside_volatility": round(downside_vol, 4),
+                "sharpe_ratio": round(sharpe, 4),
+                "sortino_ratio": round(sortino, 4),
+                "calmar_ratio": round(calmar, 4),
+            }
+
+    # ---------- 交易统计 ----------
+    trade_stats = {}
+    if trades:
+        buy_trades = [t for t in trades if t.direction == "buy"]
+        sell_trades = [t for t in trades if t.direction == "sell"]
+        won = [t for t in sell_trades if (t.pnl or 0) > 0]
+        lost = [t for t in sell_trades if (t.pnl or 0) <= 0]
+        by_code = {}
+        for t in trades:
+            d = by_code.setdefault(t.code, {"buy": 0, "sell": 0, "pnl": 0.0})
+            d[t.direction] = d.get(t.direction, 0) + 1
+            d["pnl"] += t.pnl or 0
+        trade_stats = {
+            "buy_count": len(buy_trades),
+            "sell_count": len(sell_trades),
+            "won_count": len(won),
+            "lost_count": len(lost),
+            "win_rate": round(len(won) / len(sell_trades), 4) if sell_trades else 0.0,
+            "avg_trade_interval_days": round(days / max(len(trades), 1), 2) if equity_rows and days > 0 else 0.0,
+            "by_code": [
+                {"code": c, "buy": v["buy"], "sell": v["sell"], "pnl": round(v["pnl"], 2)}
+                for c, v in sorted(by_code.items(), key=lambda kv: kv[1]["pnl"], reverse=True)
+            ],
+        }
+
+    # ---------- 关键指标汇总 ----------
+    capability = {}
+    if metrics:
+        def fmt_metric(v, as_pct=True):
+            if v is None:
+                return None
+            return round(float(v), 4)
+
+        capability = {
+            "total_return": fmt_metric(metrics.get("total_return")),
+            "annual_return": fmt_metric(metrics.get("annual_return")),
+            "sharpe_ratio": fmt_metric(metrics.get("sharpe_ratio"), as_pct=False),
+            "max_drawdown": fmt_metric(metrics.get("max_drawdown")),
+            "win_rate": fmt_metric(metrics.get("win_rate")),
+            "profit_factor": fmt_metric(metrics.get("profit_factor"), as_pct=False),
+            "total_trades": metrics.get("total_trades"),
+            "start_balance": metrics.get("start_balance"),
+            "end_balance": metrics.get("end_balance"),
+        }
+
+    return {
+        "backtest_id": backtest_id,
+        "name": backtest.name,
+        "strategy_id": backtest.strategy_id,
+        "start_date": backtest.start_date.isoformat(),
+        "end_date": backtest.end_date.isoformat(),
+        "initial_capital": backtest.initial_capital,
+        "commission_rate": backtest.commission_rate,
+        "slip_rate": backtest.slip_rate,
+        "metrics": capability,
+        "risk_metrics": risk_metrics,
+        "drawdown_analysis": drawdown_analysis,
+        "monthly_returns": {"matrix": monthly_matrix, "series": monthly_series},
+        "trade_stats": trade_stats,
+        "trades_count": len(trades),
+        "equity_points": len(equity_rows),
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+@router.get("/{backtest_id}/export-csv")
+async def export_backtest_csv(
+    backtest_id: int,
+    kind: str = Query("trades", description="导出类型：trades/equity"),
+    db: Session = Depends(get_db)
+):
+    """
+    导出回测数据为 CSV
+
+    Args:
+        backtest_id: 回测ID
+        kind: 导出类型（trades/equity）
+
+    Returns:
+        StreamingResponse: CSV 文件
+    """
+    from common.models.backtest import Backtest, BacktestTrade, EquityCurve
+
+    backtest = db.query(Backtest).filter(Backtest.id == backtest_id).first()
+    if not backtest:
+        raise_not_found("Backtest", backtest_id)
+
+    buffer = io.StringIO()
+
+    if kind == "equity":
+        rows = db.query(EquityCurve).filter(EquityCurve.backtest_id == backtest_id).order_by(EquityCurve.date.asc()).all()
+        writer = csv.writer(buffer)
+        writer.writerow(["date", "equity", "cumulative_return", "drawdown"])
+        for r in rows:
+            writer.writerow([
+                r.date.isoformat(),
+                round(r.equity or 0, 4),
+                round(r.cumulative_return or 0, 6),
+                round(r.drawdown or 0, 6),
+            ])
+        filename = f"backtest_{backtest_id}_equity.csv"
+    else:
+        rows = db.query(BacktestTrade).filter(BacktestTrade.backtest_id == backtest_id).order_by(BacktestTrade.date.asc()).all()
+        writer = csv.writer(buffer)
+        writer.writerow(["code", "date", "direction", "price", "quantity", "commission", "slip", "pnl"])
+        for r in rows:
+            writer.writerow([
+                r.code,
+                r.date.isoformat(),
+                r.direction,
+                round(r.price or 0, 4),
+                r.quantity,
+                round(r.commission or 0, 4),
+                round(r.slip or 0, 4),
+                round(r.pnl or 0, 4),
+            ])
+        filename = f"backtest_{backtest_id}_trades.csv"
+
+    buffer.seek(0)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+    }
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers=headers,
+    )
+
+
+@router.get("/{backtest_id}/export-report")
+async def export_backtest_report(
+    backtest_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    导出完整回测报告（ZIP）
+
+    打包指标 JSON + 月度收益 + 交易明细 + 权益曲线。
+
+    Returns:
+        StreamingResponse: ZIP 文件
+    """
+    from common.models.backtest import Backtest, BacktestResult, BacktestTrade, EquityCurve
+
+    backtest = db.query(Backtest).filter(Backtest.id == backtest_id).first()
+    if not backtest:
+        raise_not_found("Backtest", backtest_id)
+
+    # 复用 report 计算
+    report = await get_backtest_report(backtest_id, db)
+
+    result = db.query(BacktestResult).filter(BacktestResult.backtest_id == backtest_id).first()
+    trades = db.query(BacktestTrade).filter(BacktestTrade.backtest_id == backtest_id).all()
+    equity_rows = db.query(EquityCurve).filter(EquityCurve.backtest_id == backtest_id).order_by(EquityCurve.date.asc()).all()
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("report_summary.json", json.dumps(report, ensure_ascii=False, indent=2, default=str))
+
+        metrics_buf = io.StringIO()
+        if result:
+            md = result.__dict__
+            for k in list(md.keys()):
+                if k.startswith("_"):
+                    del md[k]
+            metrics_buf.write(json.dumps(md, ensure_ascii=False, indent=2, default=str))
+        else:
+            metrics_buf.write("{}")
+        zf.writestr("metrics.json", metrics_buf.getvalue())
+
+        trades_buf = io.StringIO()
+        w = csv.writer(trades_buf)
+        w.writerow(["code", "date", "direction", "price", "quantity", "commission", "slip", "pnl"])
+        for r in trades:
+            w.writerow([r.code, r.date.isoformat(), r.direction, round(r.price or 0, 4),
+                        r.quantity, round(r.commission or 0, 4), round(r.slip or 0, 4), round(r.pnl or 0, 4)])
+        zf.writestr("trades.csv", trades_buf.getvalue())
+
+        equity_buf = io.StringIO()
+        w = csv.writer(equity_buf)
+        w.writerow(["date", "equity", "cumulative_return", "drawdown"])
+        for r in equity_rows:
+            w.writerow([r.date.isoformat(), round(r.equity or 0, 4),
+                        round(r.cumulative_return or 0, 6), round(r.drawdown or 0, 6)])
+        zf.writestr("equity_curve.csv", equity_buf.getvalue())
+
+    zip_buffer.seek(0)
+    filename = f"backtest_{backtest_id}_report.zip"
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{backtest_id}/status")

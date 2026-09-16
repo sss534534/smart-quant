@@ -34,11 +34,14 @@
           <template #header>
             <div style="display:flex;justify-content:space-between;align-items:center">
               <span>持仓明细</span>
-              <el-button-group>
-                <el-button size="small" @click="loadPositions('all')">全部</el-button>
-                <el-button size="small" type="primary" @click="loadPositions('open')">持仓中</el-button>
-                <el-button size="small" @click="loadPositions('closed')">已平仓</el-button>
-              </el-button-group>
+              <div>
+                <el-button size="small" type="primary" @click="openReport">组合分析</el-button>
+                <el-button-group>
+                  <el-button size="small" @click="loadPositions('all')">全部</el-button>
+                  <el-button size="small" type="primary" @click="loadPositions('open')">持仓中</el-button>
+                  <el-button size="small" @click="loadPositions('closed')">已平仓</el-button>
+                </el-button-group>
+              </div>
             </div>
           </template>
           <el-table :data="positions" size="small" stripe>
@@ -117,6 +120,78 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- 组合分析报告 -->
+    <el-dialog v-model="reportVisible" title="组合分析报告" width="800px" top="5vh">
+      <div v-if="reportLoading" style="text-align:center;padding:40px">加载中...</div>
+      <template v-else>
+        <el-row :gutter="16">
+          <el-col :span="6">
+            <el-card shadow="never">
+              <div class="r-label">已实现盈亏</div>
+              <div class="r-value" :class="report.realized_pnl >= 0 ? 'profit' : 'loss'">¥ {{ fmt(report.realized_pnl) }}</div>
+            </el-card>
+          </el-col>
+          <el-col :span="6">
+            <el-card shadow="never">
+              <div class="r-label">浮动盈亏</div>
+              <div class="r-value" :class="report.unrealized_pnl >= 0 ? 'profit' : 'loss'">¥ {{ fmt(report.unrealized_pnl) }}</div>
+            </el-card>
+          </el-col>
+          <el-col :span="6">
+            <el-card shadow="never">
+              <div class="r-label">持仓股票数</div>
+              <div class="r-value">{{ report.concentration?.stock_count || 0 }}</div>
+            </el-card>
+          </el-col>
+          <el-col :span="6">
+            <el-card shadow="never">
+              <div class="r-label">HHI 集中度</div>
+              <div class="r-value">{{ (report.concentration?.hhi || 0).toFixed(3) }}</div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="16" style="margin-top:16px">
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header><span>持仓集中度</span></template>
+              <div ref="concChart" style="height: 260px"></div>
+            </el-card>
+          </el-col>
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header><span>市值与现金构成</span></template>
+              <div ref="assetChart" style="height: 260px"></div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-card shadow="never" style="margin-top:16px">
+          <template #header><span>持仓明细 & 权重</span></template>
+          <el-table :data="report.holdings || []" size="small" max-height="260">
+            <el-table-column prop="code" label="代码" width="90" />
+            <el-table-column prop="name" label="名称" width="100" />
+            <el-table-column label="市值" width="110">
+              <template #default="{ row }">{{ fmt(row.market_value) }}</template>
+            </el-table-column>
+            <el-table-column label="权重" width="110">
+              <template #default="{ row }">{{ ((row.weight || 0) * 100).toFixed(2) }}%</template>
+            </el-table-column>
+            <el-table-column label="盈亏" width="110">
+              <template #default="{ row }">
+                <span :class="row.pnl >= 0 ? 'profit' : 'loss'">{{ fmt(row.pnl) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="盈亏率" width="100">
+              <template #default="{ row }">
+                <span :class="row.pnl_pct >= 0 ? 'profit' : 'loss'">{{ row.pnl_pct.toFixed(2) }}%</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -132,6 +207,11 @@ const positions = ref([])
 const logs = ref([])
 const acctForm = ref({ amount: 10000, description: '现金存入' })
 const pieChart = ref(null)
+const reportVisible = ref(false)
+const reportLoading = ref(false)
+const report = ref({})
+const concChart = ref(null)
+const assetChart = ref(null)
 let chart = null
 
 const fmt = (v) => (Number(v) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -182,8 +262,77 @@ const withdraw = async () => {
   } catch (e) {}
 }
 
-const renderPie = async () => {
-  await nextTick()
+const openReport = async () => {
+  reportVisible.value = true
+  reportLoading.value = true
+  try {
+    const res = await portfolioAPI.getReport()
+    report.value = res.data || {}
+    await nextTick()
+    renderConc()
+    renderAsset()
+  } catch (e) {
+    ElMessage.error('获取组合报告失败')
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+const renderConc = () => {
+  const c = report.value.concentration || {}
+  if (concChart.value) {
+    const ch = echarts.init(concChart.value)
+    ch.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const p = params[0]
+          return `${p.name}<br/>${p.value}`
+        },
+      },
+      grid: { left: 60, right: 20, top: 30, bottom: 30 },
+      xAxis: { type: 'category', data: ['Top1', 'Top5', 'HHI'], axisLabel: { fontSize: 12 } },
+      yAxis: [
+        { type: 'value', name: '%', axisLabel: { formatter: '{value}%' } },
+        { type: 'value', name: 'HHI', max: 1, splitLine: { show: false } },
+      ],
+      series: [
+        {
+          type: 'bar',
+          data: [((c.top1_pct || 0) * 100).toFixed(2), ((c.top5_pct || 0) * 100).toFixed(2), 0],
+          itemStyle: { color: '#409eff' },
+          barWidth: 40,
+        },
+        {
+          type: 'bar',
+          yAxisIndex: 1,
+          data: [0, 0, (c.hhi || 0).toFixed(3)],
+          itemStyle: { color: '#67c23a' },
+          barWidth: 40,
+        },
+      ],
+    })
+  }
+}
+
+const renderAsset = () => {
+  if (assetChart.value) {
+    const ch = echarts.init(assetChart.value)
+    ch.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: 0 },
+      series: [{
+        type: 'pie', radius: ['35%', '65%'],
+        data: [
+          { name: '现金', value: report.value.cash || 0 },
+          { name: '持仓市值', value: report.value.position_value || 0 },
+        ],
+      }],
+    })
+  }
+}
+
+const renderPie = () => {
   if (pieChart.value) {
     chart = echarts.init(pieChart.value)
     chart.setOption({
@@ -207,6 +356,8 @@ onMounted(async () => {
 .m-label { color: #909399; font-size: 13px; }
 .m-value { font-size: 22px; font-weight: bold; margin-top: 6px; }
 .m-pct { font-size: 12px; margin-top: 4px; }
+.r-label { color: #909399; font-size: 12px; }
+.r-value { font-size: 18px; font-weight: bold; margin-top: 6px; }
 .profit { color: #67c23a; }
 .loss { color: #f56c6c; }
 .acct-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }

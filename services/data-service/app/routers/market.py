@@ -2,7 +2,7 @@
 市场数据路由
 提供股票行情、K线数据、股票列表等接口
 """
-from fastapi import APIRouter, Depends, Query, Path
+from fastapi import APIRouter, Depends, Query, Path, Body, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, date
@@ -15,10 +15,13 @@ from common import (
     PaginationRequest,
     PaginationResponse,
     raise_not_found,
+    raise_validation_error,
     raise_data_error,
     market_cache,
+    get_optional_user,
+    AuthUser,
 )
-from common.models.market import MarketData, StockInfo, Calendar
+from common.models.market import MarketData, StockInfo, Calendar, Watchlist
 from app.providers.base import Quote
 from app.providers.tushare import TushareDataProvider
 from app.providers.mock import MockDataProvider
@@ -230,6 +233,170 @@ async def get_calendar(
     except Exception as e:
         logger.error("Failed to get calendar", error=str(e))
         raise
+
+
+@router.get("/board")
+async def get_market_board(
+    codes: str = Query("", description="股票代码列表，逗号分隔，留空返回 mock 全量看板"),
+    provider: str = Query(default="mock", description="数据提供者"),
+    db: Session = Depends(get_db)
+):
+    """
+    行情看板：批量获取多只股票的最新行情
+    
+    Args:
+        codes: 股票代码列表，逗号分隔（如 "600000,000001,300750"）
+        provider: 数据提供者
+    
+    Returns:
+        dict: 行情看板（每只股票的实时行情快照）
+    """
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if not code_list:
+        code_list = [s["code"] for s in MOCK_STOCKS]
+
+    # 选择数据提供者
+    provider_instance = mock_provider if provider == "mock" else tushare_provider
+    await provider_instance.initialize()
+
+    results = []
+    for code in code_list:
+        try:
+            cache_key = f"board:{code}:{provider}"
+            cached = market_cache.get(cache_key)
+            if cached:
+                results.append(cached)
+                continue
+            quote = await provider_instance.get_quote(code)
+            if quote:
+                data = quote.__dict__
+                data["code"] = code
+                data["provider"] = provider
+                market_cache.set(cache_key, data, ttl=10)
+                results.append(data)
+        except Exception:
+            continue
+
+    return {
+        "count": len(results),
+        "quotes": results,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@router.get("/watchlist")
+async def get_watchlist(
+    current_user: AuthUser = Depends(get_optional_user),
+    db: Session = Depends(get_db)
+):
+    """
+    获取自选股列表
+    
+    按用户隔离自选股列表，未登录时返回默认列表。
+    同时附带每只股票的最新行情快照。
+    """
+    user_id = current_user.user_id if current_user else 0
+
+    items = db.query(Watchlist) \
+        .filter(Watchlist.user_id == user_id) \
+        .order_by(Watchlist.sort_order.asc(), Watchlist.created_at.desc()) \
+        .all()
+
+    # 批量获取行情
+    provider_instance = mock_provider
+    await provider_instance.initialize()
+    for item in items:
+        try:
+            cache_key = f"board:{item.code}:mock"
+            cached = market_cache.get(cache_key)
+            if cached:
+                item.latest_price = cached.get("price")
+                item.change_percent = cached.get("change_percent")
+            else:
+                quote = await provider_instance.get_quote(item.code)
+                if quote:
+                    item.latest_price = quote.price
+                    item.change_percent = getattr(quote, "change_pct", 0)
+                    market_cache.set(cache_key, quote.__dict__, ttl=10)
+                else:
+                    item.latest_price = None
+                    item.change_percent = None
+        except Exception:
+            item.latest_price = None
+            item.change_percent = None
+
+    return [
+        {
+            "code": item.code,
+            "name": item.name,
+            "remark": item.remark,
+            "sort_order": item.sort_order,
+            "latest_price": item.latest_price,
+            "change_percent": item.change_percent,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+        }
+        for item in items
+    ]
+
+
+@router.post("/watchlist")
+async def add_to_watchlist(
+    data: dict = Body(..., example={"code": "600000", "remark": "浦发银行自选"}),
+    current_user: AuthUser = Depends(get_optional_user),
+    db: Session = Depends(get_db)
+):
+    """
+    添加自选股
+    
+    body: {"code": "股票代码", "remark": "备注（可选）"}
+    """
+    code = (data.get("code") or "").strip()
+    remark = (data.get("remark") or "").strip()
+    if not code or len(code) not in (6, 8):
+        raise_validation_error("股票代码必须为6位或8位")
+
+    user_id = current_user.user_id if current_user else 0
+
+    # 查重
+    existing = db.query(Watchlist).filter(Watchlist.user_id == user_id, Watchlist.code == code).first()
+    if existing:
+        raise_validation_error(f"股票 {code} 已在自选股中")
+
+    # 查股票名称
+    stock_info = db.query(StockInfo).filter(StockInfo.code == code).first()
+    name = stock_info.name if stock_info else ""
+
+    item = Watchlist(
+        user_id=user_id,
+        code=code,
+        name=name,
+        remark=remark,
+        sort_order=0,
+    )
+    db.add(item)
+    db.commit()
+
+    logger.info("Watchlist add", user_id=user_id, code=code)
+    return {"code": code, "name": name, "remark": remark, "created_at": item.created_at.isoformat()}
+
+
+@router.delete("/watchlist/{code}")
+async def remove_from_watchlist(
+    code: str,
+    current_user: AuthUser = Depends(get_optional_user),
+    db: Session = Depends(get_db)
+):
+    """删除自选股"""
+    user_id = current_user.user_id if current_user else 0
+
+    item = db.query(Watchlist).filter(Watchlist.user_id == user_id, Watchlist.code == code).first()
+    if not item:
+        raise_not_found("Watchlist", code)
+
+    db.delete(item)
+    db.commit()
+    logger.info("Watchlist remove", user_id=user_id, code=code)
+    return {"code": code, "message": "已删除"}
 
 
 @router.get("/health")

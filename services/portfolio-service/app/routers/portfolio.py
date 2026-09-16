@@ -12,6 +12,7 @@ from common import (
     raise_validation_error,
     raise_portfolio_error,
     get_current_user,
+    get_optional_user,
     AuthUser,
 )
 from app.engine import portfolio_engine, Position, PositionStatus
@@ -19,6 +20,89 @@ from app.persistence import save_state
 
 router = APIRouter()
 logger = get_logger("portfolio-service")
+
+
+@router.get("/report")
+async def get_portfolio_report():
+    """
+    完整组合分析报告
+    汇总指标 + 收益分解 + 集中度 + 持仓明细 + 资金曲线
+    """
+    positions = portfolio_engine.get_positions()
+    account = portfolio_engine.get_account()
+    logs = portfolio_engine.get_logs(limit=1000)
+
+    # 持仓市值
+    active_positions = [p for p in positions if p.status == PositionStatus.ACTIVE and p.quantity > 0]
+    total_position_value = sum(p.quantity * (p.current_price or p.avg_cost) for p in active_positions)
+    total_assets = account.balance + total_position_value
+
+    # 收益分解
+    realized_pnl = sum(p.realized_pnl or 0 for p in positions)
+    unrealized_pnl = sum(p.unrealized_pnl or 0 for p in active_positions)
+
+    # 集中度
+    holdings_sorted = sorted(
+        active_positions, key=lambda p: p.quantity * (p.current_price or p.avg_cost), reverse=True
+    )
+    top1_value = holdings_sorted[0].quantity * (holdings_sorted[0].current_price or holdings_sorted[0].avg_cost) if holdings_sorted else 0
+    top5_value = sum(p.quantity * (p.current_price or p.avg_cost) for p in holdings_sorted[:5])
+    top1_pct = top1_value / total_assets if total_assets > 0 else 0
+    top5_pct = top5_value / total_assets if total_assets > 0 else 0
+
+    # HHI 集中度指数
+    if total_assets > 0:
+        shares = [(p.quantity * (p.current_price or p.avg_cost)) / total_assets for p in active_positions]
+        hhi = sum(s ** 2 for s in shares)
+    else:
+        hhi = 0
+
+    # 持仓明细
+    holdings_detail = []
+    for p in active_positions:
+        mv = p.quantity * (p.current_price or p.avg_cost)
+        pnl = (p.current_price or p.avg_cost) - p.avg_cost
+        holdings_detail.append({
+            "code": p.code,
+            "name": p.name,
+            "quantity": p.quantity,
+            "avg_price": p.avg_price,
+            "avg_cost": p.avg_cost,
+            "current_price": p.current_price,
+            "market_value": mv,
+            "pnl": pnl,
+            "pnl_pct": pnl / p.avg_cost * 100 if p.avg_cost > 0 else 0,
+            "weight": mv / total_assets if total_assets > 0 else 0,
+        })
+
+    # 资金曲线（按时间正序）
+    equity_curve = []
+    for log in sorted(logs, key=lambda l: l.created_at):
+        equity_curve.append({
+            "balance": log.balance_after,
+            "date": log.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(log.created_at, 'strftime') else str(log.created_at),
+            "reason": log.description,
+        })
+
+    summary = portfolio_engine.get_summary()
+
+    return {
+        "total_assets": total_assets,
+        "cash": account.balance,
+        "position_value": total_position_value,
+        "realized_pnl": realized_pnl,
+        "unrealized_pnl": unrealized_pnl,
+        "total_return": summary.get("total_profit_pct", 0),
+        "concentration": {
+            "top1_pct": top1_pct,
+            "top5_pct": top5_pct,
+            "hhi": hhi,
+            "stock_count": len(active_positions),
+        },
+        "holdings": holdings_detail,
+        "equity_curve": equity_curve[:50],
+        "initial_capital": summary.get("initial_capital", 0),
+    }
 
 
 @router.get("/positions")
