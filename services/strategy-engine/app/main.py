@@ -31,6 +31,11 @@ async def lifespan(app: FastAPI):
     logger.info("Strategy Engine starting up...")
     from common import init_db, auth_service, scheduler
     init_db()
+    # 预置业界策略元数据（幂等）
+    from app.seed import seed_strategies, SEED_STRATEGIES
+    from common.database import SessionLocal
+    with SessionLocal() as db:
+        seed_strategies(db)
     await auth_service.initialize(secret_key=settings.SECRET_KEY)
     # 启动定时任务：每分钟推送 bar 给运行中策略
     scheduler.start()

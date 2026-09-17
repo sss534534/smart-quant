@@ -11,7 +11,7 @@ from strategies.base import BarData
 
 async def fetch_bar(code: str) -> Optional[dict]:
     """拉取单只股票 quote 并转为 BarData dict（失败返回 None）"""
-    quote = await data_client.get_quote(code, provider="mock")
+    quote = await data_client.get_quote(code, provider="eastmoney")
     if not quote:
         return None
     price = float(quote.get("price", 0))
