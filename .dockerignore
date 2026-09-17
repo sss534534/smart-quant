@@ -1,0 +1,10 @@
+.git
+.github
+.trae
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.env
+docs
+tests
+web-frontend/node_modules
