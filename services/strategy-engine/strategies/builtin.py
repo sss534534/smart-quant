@@ -287,9 +287,29 @@ class MACDStrategy(BaseStrategy):
 
 # 策略注册
 def register_strategies():
-    """注册所有内置策略"""
+    """注册所有内置策略（含预置业界策略）"""
     from .factory import StrategyFactory
-    
-    StrategyFactory.register(DualMAStrategy)
-    StrategyFactory.register(RSIMeanReversionStrategy)
-    StrategyFactory.register(MACDStrategy)
+    from .preloaded_trend import (
+        BollingerBreakoutStrategy, TurtleStrategy,
+        ADXTrendStrategy, TripleMAStrategy,
+    )
+    from .preloaded_volume import (
+        VolumeBreakoutStrategy, VolPriceUpStrategy, OBVDivergenceStrategy,
+    )
+    from .preloaded_meanrev import (
+        BollingerMeanRevStrategy, RSIExtremeStrategy, HammerPatternStrategy,
+        EngulfingPatternStrategy, DojiReversalStrategy, GapWindowStrategy,
+    )
+    from .preloaded_factor import (
+        MomentumFactorStrategy, LowVolatilityStrategy, MultiFactorStrategy,
+    )
+
+    for cls in (
+        DualMAStrategy, RSIMeanReversionStrategy, MACDStrategy,
+        BollingerBreakoutStrategy, TurtleStrategy, ADXTrendStrategy, TripleMAStrategy,
+        VolumeBreakoutStrategy, VolPriceUpStrategy, OBVDivergenceStrategy,
+        BollingerMeanRevStrategy, RSIExtremeStrategy, HammerPatternStrategy,
+        EngulfingPatternStrategy, DojiReversalStrategy, GapWindowStrategy,
+        MomentumFactorStrategy, LowVolatilityStrategy, MultiFactorStrategy,
+    ):
+        StrategyFactory.register(cls)

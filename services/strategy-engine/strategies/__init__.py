@@ -36,6 +36,30 @@ from .builtin import (
     MACDStrategy,
     register_strategies,
 )
+from .preloaded_trend import (
+    BollingerBreakoutStrategy,
+    TurtleStrategy,
+    ADXTrendStrategy,
+    TripleMAStrategy,
+)
+from .preloaded_volume import (
+    VolumeBreakoutStrategy,
+    VolPriceUpStrategy,
+    OBVDivergenceStrategy,
+)
+from .preloaded_meanrev import (
+    BollingerMeanRevStrategy,
+    RSIExtremeStrategy,
+    HammerPatternStrategy,
+    EngulfingPatternStrategy,
+    DojiReversalStrategy,
+    GapWindowStrategy,
+)
+from .preloaded_factor import (
+    MomentumFactorStrategy,
+    LowVolatilityStrategy,
+    MultiFactorStrategy,
+)
 
 __all__ = [
     # 基类
@@ -69,5 +93,21 @@ __all__ = [
     "DualMAStrategy",
     "RSIMeanReversionStrategy",
     "MACDStrategy",
+    "BollingerBreakoutStrategy",
+    "TurtleStrategy",
+    "ADXTrendStrategy",
+    "TripleMAStrategy",
+    "VolumeBreakoutStrategy",
+    "VolPriceUpStrategy",
+    "OBVDivergenceStrategy",
+    "BollingerMeanRevStrategy",
+    "RSIExtremeStrategy",
+    "HammerPatternStrategy",
+    "EngulfingPatternStrategy",
+    "DojiReversalStrategy",
+    "GapWindowStrategy",
+    "MomentumFactorStrategy",
+    "LowVolatilityStrategy",
+    "MultiFactorStrategy",
     "register_strategies",
 ]
