@@ -17,13 +17,18 @@ class RiskMixin:
     _trailing_stop_pct: float = 0.08
     _max_position_pct: float = 0.2
     _capital: float = 100000.0
-    _entry_prices: Dict[str, float] = {}
-    _highest_prices: Dict[str, float] = {}
-    _stop_levels: Dict[str, float] = {}
 
     def setup_risk(self, params: Dict[str, Any]):
         """从 params 读取风控参数"""
+        self._entry_prices: Dict[str, float] = {}
+        self._highest_prices: Dict[str, float] = {}
+        self._stop_levels: Dict[str, float] = {}
         self._risk_enabled = bool(params.get("risk_enabled", True))
+        self._atr_period = int(params.get("atr_period", self._atr_period))
+        self._atr_stop_mult = float(params.get("atr_stop_mult", self._atr_stop_mult))
+        self._trailing_stop_pct = float(params.get("trailing_stop_pct", self._trailing_stop_pct))
+        self._max_position_pct = float(params.get("max_position_pct", self._max_position_pct))
+        self._capital = float(params.get("capital", self._capital))
         self._atr_period = int(params.get("atr_period", self._atr_period))
         self._atr_stop_mult = float(params.get("atr_stop_mult", self._atr_stop_mult))
         self._trailing_stop_pct = float(params.get("trailing_stop_pct", self._trailing_stop_pct))
